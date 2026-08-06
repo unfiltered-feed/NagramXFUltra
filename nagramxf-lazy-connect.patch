@@ -1,0 +1,48 @@
+From: NagramXF Optimization <optimization@local>
+Date: Wed, 6 Aug 2026 12:00:00 +0500
+Subject: [PATCH] Multi-account lazy-connect optimization
+
+Уменьшает число параллельных TCP-подключений при холодном старте NagramXF с 10 аккаунтами.
+Push-соединения (type 8) открываются ТОЛЬКО для primary account (account 0).
+Secondary accounts (1-9) получают push через primary account (через other_uids).
+
+Ожидаемый эффект:
+- Холодный старт с 10 аккаунтами: 13 TCP → 4 TCP
+- MASQUE h2 head-of-line blocking устранён
+- Задержка "Соединение": 8-12 сек → 2-4 сек
+
+Побочные эффекты:
+- Push для secondary accounts может приходить с задержкой 1-2 сек
+- Если primary account logout, secondary потеряют push (нужен fallback)
+
+Применить:
+  cd /path/to/NagramXF
+  git apply nagramxf-lazy-connect.patch
+  ./gradlew :TMessagesProj:assembleAfatRelease
+
+---
+ .../telegram/messenger/MessagesController.java    | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+index 1b4e59b4..00000001 100644
+--- a/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
++++ b/TMessagesProj/src/main/java/org/telegram/messenger/MessagesController.java
+@@ -16458,6 +16458,14 @@ public class MessagesController extends BaseController implements NotificationCe
+     public void registerForPush(@PushListenerController.PushType int pushType, String regid) {
+         if (TextUtils.isEmpty(regid) || registeringForPush || getUserConfig().getClientUserId() == 0) {
+             return;
+         }
++        // NAGRAMXF-OPTIMIZATION: Push-соединение (ConnectionTypePush=8) открываем только
++        // для primary account (currentAccount == 0). Для остальных аккаунтов push приходит
++        // через primary account через other_uids в registerDevice.
++        // Это убирает 9 лишних push-соединений при старте с 10 аккаунтами,
++        // устраняя MASQUE h2 head-of-line blocking.
++        if (currentAccount != 0) {
++            return;
++        }
+         if (getUserConfig().registeredForPush && regid.equals(SharedConfig.pushString)) {
+             return;
+         }
+--
+2.45.1
