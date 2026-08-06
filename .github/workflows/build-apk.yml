@@ -67,6 +67,9 @@ jobs:
         run: ./gradlew :TMessagesProj:assembleRelease --no-daemon --no-build-cache -x lint
         env:
           NATIVE_TARGET: arm64-v8a
+          KEYSTORE_PASS: android
+          ALIAS_NAME: androidkey
+          ALIAS_PASS: android
         timeout-minutes: 60
 
       - name: List built APKs
